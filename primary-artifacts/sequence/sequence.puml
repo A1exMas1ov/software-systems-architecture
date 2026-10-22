@@ -14,7 +14,8 @@ Cal -> Cal: popNext()
 note right: ближайшее событие в календаре - SOURCE_ARRIVAL
 Cal -> Source: generateRequest()
 note right
-  ИЗ1 - интервалы между заявками
+  ИЗ1 - пуассоновский,
+  интервалы между заявками
   распределены экспоненциально,
   источник бесконечный (ИБ)
 end note
@@ -60,7 +61,7 @@ deactivate DP
 DP -> DV: onRequestEnqueued()
 activate DV
 DV -> DV: findFreeDevice()
-loop сканирование приборов с №1 по кольцу (Д2П1)
+loop сканирование приборов с №1 по кольцу (Д2П1 (выбор прибора по приоритету номера))
   DV -> Device: isBusy()
   Device --> DV: Response: занят / свободен
 end
