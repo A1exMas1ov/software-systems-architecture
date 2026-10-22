@@ -1,0 +1,140 @@
+@startuml
+title Sequence. Вариант 17 (ИБ, ИЗ1, ПЗ2, Д10З1, Д10О4, Д2П1, Д2Б3, ОР1, ОД2)
+
+control Календарь_событий as Cal
+actor Источник as Source
+participant Диспетчер_постановки as DP
+queue Буфер as Buffer
+participant Диспетчер_выбора as DV
+participant Прибор as Device
+participant Статистика as Stats
+
+== Генерация заявки ==
+Cal -> Cal: popNext()
+note right: ближайшее событие в календаре - SOURCE_ARRIVAL
+Cal -> Source: generateRequest()
+note right
+  ИЗ1 - интервалы между заявками
+  распределены экспоненциально,
+  источник бесконечный (ИБ)
+end note
+Source --> Cal: Response: заявка
+Cal -> Cal: schedule(now + exp, SOURCE_ARRIVAL, источник)
+note right: сразу планируем следующий приход от этого же источника
+Cal -> DP: handleNewRequest(request)
+activate DP
+
+DP -> Buffer: hasFreeSlot()
+Buffer --> DP: Response: мест нет
+
+alt Буфер переполнен - "Отказ / выбивание" (Д10О4)
+  DP -> DP: handleOverflow(request)
+  DP -> Buffer: evictLast()
+  note right of Buffer
+    Если свободных мест в очереди нет,
+    отклоняется последнее поступившее обращение
+    (insertPointer − 1) mod N
+  end note
+  Buffer --> DP: Response: вытесненная заявка
+  DP -> Stats: record(REQUEST_EVICTED)
+  DP -> Buffer: insert(request, slot)
+  Buffer -> Buffer: advanceInsertPointer()
+  Buffer --> DP: Response: ок
+  DP -> Stats: record(REQUEST_TO_BUFFER)
+
+else Есть свободное место - "Постановка в буфер" (Д10З1)
+  Buffer --> DP: Response: место есть
+  DP -> DP: placeIntoBuffer(request)
+  loop поиск свободного места по кольцу
+    DP -> Buffer: findFreeSlotRing()
+    Buffer --> DP: Response: индекс места / ещё не найдено
+  end
+  DP -> Buffer: insert(request, slot)
+  Buffer -> Buffer: advanceInsertPointer()
+  Buffer --> DP: Response: ок
+  DP -> Stats: record(REQUEST_TO_BUFFER)
+end
+deactivate DP
+
+== Заявка только что встала в буфер (проверка HappyFlow) ==
+DP -> DV: onRequestEnqueued()
+activate DV
+DV -> DV: findFreeDevice()
+loop сканирование приборов с №1 по кольцу (Д2П1)
+  DV -> Device: isBusy()
+  Device --> DV: Response: занят / свободен
+end
+
+alt Свободный прибор найден - "HappyFlow"
+  DV -> DV: selectRequestFromBuffer()
+  loop поиск занятого места по кольцу (Д2Б3)
+    DV -> Buffer: findOccupiedSlotRing()
+    Buffer --> DV: Response: индекс места / ещё не найдено
+  end
+  DV -> Buffer: select(slot)
+  Buffer -> Buffer: advanceSelectPointer()
+  Buffer --> DV: Response: заявка
+  DV -> Stats: record(REQUEST_SELECTED)
+  DV -> DV: dispatchToDevice(request, device)
+  DV -> Device: process(request)
+  activate Device
+  Device -> Device: пометить прибор занятым, начать обслуживание
+  Device -> Cal: schedule(now + U[a; b], DEVICE_COMPLETION, прибор)
+  note right
+    ПЗ2 - время обслуживания
+    распределено равномерно
+  end note
+  Device --> DV: Response: заявка принята
+  deactivate Device
+  DV -> Stats: record(REQUEST_TO_DEVICE)
+
+else Свободных приборов нет
+  DV -> DV: заявка остаётся в буфере,\nждём событие "прибор освободился"
+end
+deactivate DV
+
+== Завершение обработки ==
+Cal -> Cal: popNext()
+note right: ближайшее событие в календаре - DEVICE_COMPLETION
+Cal -> Device: onFreed()
+activate Device
+Device -> Stats: record(REQUEST_COMPLETED)
+Device --> Cal: Response: ок
+deactivate Device
+
+== Прибор освободился ==
+Device -> DV: onDeviceFreed(device)
+activate DV
+DV -> Buffer: isEmpty()
+
+alt Буфер не пуст - "Выбор из буфера -> постановка на прибор"
+  Buffer --> DV: Response: не пуст
+  DV -> DV: selectRequestFromBuffer()
+  loop поиск занятого места по кольцу (Д2Б3)
+    DV -> Buffer: findOccupiedSlotRing()
+    Buffer --> DV: Response: индекс места / ещё не найдено
+  end
+  DV -> Buffer: select(slot)
+  Buffer -> Buffer: advanceSelectPointer()
+  Buffer --> DV: Response: заявка
+  DV -> Stats: record(REQUEST_SELECTED)
+  DV -> DV: dispatchToDevice(request, device)
+  DV -> Device: process(request)
+  activate Device
+  Device -> Device: пометить прибор занятым, начать обслуживание
+  Device -> Cal: schedule(now + U[a; b], DEVICE_COMPLETION, прибор)
+  note right
+    ПЗ2 - время обслуживания
+    распределено равномерно
+  end note
+  Device --> DV: Response: заявка принята
+  deactivate Device
+  DV -> Stats: record(REQUEST_TO_DEVICE)
+
+else Буфер пуст
+  Buffer --> DV: Response: пуст
+  DV -> DV: прибор простаивает,\nждём событие "заявка встала в буфер"
+end
+deactivate DV
+
+@enduml

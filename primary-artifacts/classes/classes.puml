@@ -1,0 +1,179 @@
+@startuml
+title Classes. Вариант 17 (ИБ, ИЗ1, ПЗ2, Д10З1, Д10О4, Д2П1, Д2Б3, ОР1, ОД2)
+
+class Source {
+  - id: int
+  - lambda: double
+  - interArrivalGenerator: Exp(lambda)
+  --
+  + generateRequest(): Request
+}
+
+class Request {
+  - id: int
+  - sourceId: int
+  - createdAt: double
+  - enqueuedAt: double
+  - status: RequestStatus
+  --
+  + getWaitingTime(): double
+}
+
+enum RequestStatus {
+  GENERATED
+  IN_BUFFER
+  REJECTED
+  IN_SERVICE
+  COMPLETED
+}
+
+class Buffer {
+  - slots: Request[N]
+  - size: int
+  - insertPointer: int
+  - selectPointer: int
+  --
+  + hasFreeSlot(): bool
+  + findFreeSlotRing(): int
+  + insert(request: Request, slot: int): void
+  + evictLast(): Request
+  + findOccupiedSlotRing(): int
+  + select(slot: int): Request
+  + isEmpty(): bool
+  + getInsertPointer(): int
+  + getSelectPointer(): int
+  + getSlots(): Request[]
+  - advanceInsertPointer(): void
+  - advanceSelectPointer(): void
+}
+
+class PlacementDispatcher {
+  - buffer: Buffer
+  - statistics: Statistics
+  --
+  + handleNewRequest(request: Request): void
+  - placeIntoBuffer(request: Request): void
+  - handleOverflow(request: Request): void
+}
+
+class SelectionDispatcher {
+  - buffer: Buffer
+  - devices: Device[m]
+  - statistics: Statistics
+  --
+  + onDeviceFreed(device: Device): void
+  + onRequestEnqueued(): void
+  - findFreeDevice(): Device
+  - selectRequestFromBuffer(): Request
+  - dispatchToDevice(request: Request, device: Device): void
+}
+
+class Device {
+  - id: int
+  - isFree: bool
+  - a: double
+  - b: double
+  - serviceTimeGenerator: Uniform(a, b)
+  - statistics: Statistics
+  --
+  + process(request: Request): void
+  + onFreed(): void
+  + isBusy(): bool
+}
+
+class Statistics {
+  - eventLog: List<Event>
+  - rejectedCount: int
+  - completedCount: int
+  --
+  + record(event: Event): void
+  + rejectionRate(): double
+  + averageDeviceUtilization(): double
+  + averageTimeInSystem(): double
+  + buildSummaryReport(): Report
+}
+
+class Event {
+  - type: EventType
+  - modelTime: double
+  - requestId: int
+}
+
+enum EventType {
+  REQUEST_GENERATED
+  REQUEST_TO_BUFFER
+  REQUEST_TO_DEVICE
+  REQUEST_EVICTED
+  REQUEST_SELECTED
+  REQUEST_COMPLETED
+}
+
+class EventCalendar {
+  - entries: List<CalendarEvent>
+  --
+  + schedule(time: double, type: CalendarEventType, payload: object): void
+  + popNext(): CalendarEvent
+  + peekNext(): CalendarEvent
+  + isEmpty(): bool
+}
+
+class CalendarEvent {
+  - time: double
+  - type: CalendarEventType
+  - payload: object
+}
+
+enum CalendarEventType {
+  SOURCE_ARRIVAL
+  DEVICE_COMPLETION
+}
+
+class Simulation {
+  - sources: Source[]
+  - buffer: Buffer
+  - placementDispatcher: PlacementDispatcher
+  - selectionDispatcher: SelectionDispatcher
+  - devices: Device[]
+  - statistics: Statistics
+  - calendar: EventCalendar
+  - currentTime: double
+  --
+  + simulationStep(): void
+  + runAutoMode(): void
+  + runStepMode(): void
+  - processNextCalendarEvent(): void
+}
+
+Source --> Request : создаёт
+Request "1" --> "1" RequestStatus
+
+PlacementDispatcher --> Buffer : работает только с буфером
+PlacementDispatcher ..> Request : принимает как аргумент
+
+SelectionDispatcher --> Buffer : выбирает заявки
+SelectionDispatcher --> "1..m" Device : выбирает свободный
+SelectionDispatcher ..> Request : передаёт на прибор
+
+Buffer "1" o-- "N" Request : хранит в слотах
+
+Device ..> Request : обрабатывает
+
+PlacementDispatcher --> Statistics : регистрирует события
+SelectionDispatcher --> Statistics : регистрирует события
+Device --> Statistics : регистрирует события
+Statistics "1" *-- "many" Event
+
+Simulation "1" *-- "n" Source
+Simulation "1" *-- "1" Buffer
+Simulation "1" *-- "1" PlacementDispatcher
+Simulation "1" *-- "1" SelectionDispatcher
+Simulation "1" *-- "m" Device
+Simulation "1" *-- "1" Statistics
+Simulation "1" *-- "1" EventCalendar
+
+EventCalendar "1" o-- "many" CalendarEvent
+CalendarEvent "1" --> "1" CalendarEventType
+Simulation ..> Source : планирует приход заявки (SOURCE_ARRIVAL)
+Simulation ..> Device : планирует окончание обработки (DEVICE_COMPLETION)
+
+@enduml
